@@ -1,0 +1,11 @@
+{
+  "name": "certificatesapp",
+  "version": "1.0.0",
+  "description": "An application that stores certificates earned by students and sents campus placement notification based on their skills",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Tulasi Ram Reddy Gade",
+  "license": "ISC"
+}
