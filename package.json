@@ -2,10 +2,18 @@
   "name": "certificatesapp",
   "version": "1.0.0",
   "description": "An application that stores certificates earned by students and sents campus placement notification based on their skills",
-  "main": "app.js",
+  "main": "server.js",
   "scripts": {
+    "start": "nodemon sever.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Tulasi Ram Reddy Gade",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "express": "^4.17.3",
+    "mongoose": "^6.2.4",
+    "morgan": "^1.10.0",
+    "validator": "^13.7.0"
+  }
 }
