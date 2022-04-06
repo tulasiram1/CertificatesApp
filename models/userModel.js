@@ -1,3 +1,4 @@
+const certificateModel = require('./certificateModel');
 const mongoose = require('mongoose');
 const validator = require('validator');
 const bcryptjs = require('bcryptjs');
@@ -75,8 +76,20 @@ userSchema.pre('save', async function (next) {
 userSchema.pre('save', function (next) {
     if (!this.isModified('password') || this.isNew)
         return next();
+    this.passwordResetToken = undefined;
+    this.passwordResetTokenExpiresIn = undefined;
     this.passwordChangedAt = Date.now() - 1000;
     next();
+})
+
+userSchema.pre(/^find/, function (next) {
+
+})
+
+userSchema.virtual('certs', {
+    ref: 'certificateModel',
+    foreignField: 'user',
+    localField: '_id'
 })
 
 
@@ -110,7 +123,6 @@ userSchema.methods.createPasswordResetToken = function () {
     console.log({ resetToken }, this.passwordResetToken);
     return resetToken;
 }
-
 
 
 const User = mongoose.model('user', userSchema);

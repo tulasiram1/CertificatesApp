@@ -3,82 +3,64 @@ const jwt = require('jsonwebtoken');
 const { promisify } = require('util');
 const sendMail = require('./../email');
 const crypto = require('crypto')
+const catchAsync = require('./../utils/catchAsync');
 
-
-
+const cookieOptions = {
+    expires: new Date(Date.now() + process.env.JWT_COOKIE_EXPIRES_IN * 24 * 60 * 60 * 1000),
+    // secure: true,
+    httpOnly: true
+}
 const signToken = (id) => {
     return jwt.sign({ id: id }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN });
 }
 
-
-exports.signup = async (req, res) => {
-    try {
-        // if (req.body.role == undefined)
-        //     req.body.role = 'student'
-        const newUser = await User.create({
-            id: req.body.id,
-            name: req.body.name,
-            email: req.body.email,
-            password: req.body.password,
-            passwordConfirm: req.body.passwordConfirm,
-            role: 'student'
-        });
-
-        const token = signToken(newUser._id)
-
-        res.status(201).json({
-            status: "success",
-            data: {
-                newUser,
-                token
-            }
-        });
-    } catch (err) {
-        res.status(500).json({
-            status: "Fail",
-            data: {
-                err
-            }
-        })
-        console.log('Error occured  ', err);
-    }
+const createToken = (res, user, sta) => {
+    const token = signToken(user._id);
+    res.cookie('jwt', token, cookieOptions);
+    user.password = undefined;
+    res.status(sta).json({
+        status: "success",
+        data: {
+            user
+        },
+        token
+    });
 }
 
-exports.login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        if (!email || !password) {
-            res.status(500).json({
-                status: "Fail",
-                data: "Enter password or email"
-            })
-            // console.log('Error occured  ', err);
-        }
-        const user = await User.findOne({ email }).select('+password');
-        const correct = user.correctPassword(password, user.password);
-        if (!user || !correct) {
-            res.status(500).json({
-                status: "Fail",
-                data: "Enter correct password or email"
-            })
-        }
-        const token = signToken(user._id);
-        res.status(200).json({
-            status: "Success",
-            data: {
-                user
-            },
-            token
-        });
-    }
-    catch (err) {
-        console.log(err);
+exports.signup = catchAsync(async (req, res, next) => {
+    // if (req.body.role == undefined)
+    //     req.body.role = 'student'
+    const newUser = await User.create({
+        id: req.body.id,
+        name: req.body.name,
+        email: req.body.email,
+        password: req.body.password,
+        passwordConfirm: req.body.passwordConfirm,
+        role: 'student'
+    });
+    createToken(res, newUser, 201)
+})
+
+exports.login = catchAsync(async (req, res, next) => {
+
+    const { email, password } = req.body;
+    if (!email || !password) {
         res.status(500).json({
             status: "Fail",
-            err
+            data: "Enter password or email"
+        })
+        // console.log('Error occured  ', err);
+    }
+    const user = await User.findOne({ email }).select('+password');
+    const correct = user.correctPassword(password, user.password);
+    if (!user || !correct) {
+        res.status(500).json({
+            status: "Fail",
+            data: "Enter correct password or email"
         })
     }
-}
+    createToken(res, user, 200);
+})
 
 exports.protect = async (req, res, next) => {
     let token;
@@ -122,7 +104,7 @@ exports.restrictTo = (...roles) => {
     return (req, res, next) => {
         console.log(req.user.role);
         if (!roles.includes(req.user.role)) {
-            req.status(403).json({
+            res.status(403).json({
                 status: "fail",
                 message: "Unauthorized to perform these actions"
             });
@@ -132,7 +114,7 @@ exports.restrictTo = (...roles) => {
     }
 }
 
-exports.forgotPassword = async (req, res) => {
+exports.forgotPassword = catchAsync(async (req, res, next) => {
     const user = await User.findOne({ email: req.body.email });
     if (!user) {
         res.status(404).json({
@@ -146,26 +128,16 @@ exports.forgotPassword = async (req, res) => {
     await user.save();
     const resetLink = `${req.protocol}://${req.get('host')}/api/v1/users/resetPassword/${resetToken}`
     const message = `Forgot password ${resetLink}`;
-    try {
-        await sendMail({
-            email: user.email,
-            subject: 'Reset token valid for 10 minutes',
-            text: message
-        });
-    }
-    catch {
-        user.PasswordResetToken = undefined;
-        user.PasswordResetTokenExpiresIn = undefined;
-        await user.save();
-        res.status(500).json({
-            status: "fail"
-        })
-    }
+    await sendMail({
+        email: user.email,
+        subject: 'Reset token valid for 10 minutes',
+        text: message
+    });
     res.status(200).json({
         status: "success",
         message: "token sent to email"
     })
-}
+})
 
 exports.resetPassword = async (req, res) => {
     const params = req.params.id;
@@ -184,11 +156,29 @@ exports.resetPassword = async (req, res) => {
     user.passwordConfirm = req.body.passwordConfirm;
     user.PasswordResetToken = undefined;
     user.PasswordResetTokenExpiresIn = undefined;
-    await user.save();
-    const token = signToken(user._id);
+    await user.save({ runValidator: true });
+    createToken(res, user, 200);
+}
 
-    res.status(200).json({
-        status: "success",
-        token
-    });
+
+exports.updatePassword = async (req, res, next) => {
+    // check if user has token(protect middle ware)
+    // check if posted password is correct
+    const user = await User.findById(req.user._id).select('+password');
+    if (await user.correctPassword(req.body.currentPassword, user.password)) {
+        // const user = await User.findById(req.user._id);
+        user.password = req.body.newPassword;
+        user.passwordConfirm = req.body.passwordConfirm;
+        await user.save();
+        const token = signToken(user._id);
+        createToken(res, '', 203);
+        return;
+    }
+    res.status(400).json({
+        status: "Fail",
+        message: "Password provided is wrong"
+    })
+    // update the paswword
+    // send jwt to user
+
 }
